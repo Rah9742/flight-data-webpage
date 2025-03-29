@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Card,
@@ -7,16 +7,44 @@ import {
   Button,
   Typography,
   Alert,
-  CircularProgress
+  CircularProgress,
+  FormControlLabel,
+  Checkbox
 } from '@mui/material';
+import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 const Login = () => {
+  const navigate = useNavigate();
   const [credentials, setCredentials] = useState({
     username: '',
     password: ''
   });
+  const [rememberMe, setRememberMe] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    // Check for stored token on component mount
+    const token = localStorage.getItem('authToken');
+    if (token) {
+      // Verify token validity
+      verifyToken(token);
+    }
+  }, []);
+
+  const verifyToken = async (token) => {
+    try {
+      const response = await axios.get('/api/auth/profile', {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.data.user) {
+        navigate('/flights');
+      }
+    } catch (error) {
+      localStorage.removeItem('authToken');
+    }
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -24,19 +52,21 @@ const Login = () => {
     setError('');
 
     try {
-      // TODO: Implement actual authentication logic
-      // For demonstration, we'll simulate a login
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
-      // Mock validation
-      if (credentials.username && credentials.password) {
-        // TODO: Store authentication token and user role
-        console.log('Login successful');
+      const response = await axios.post('/api/auth/login', credentials);
+      const { token } = response.data;
+
+      if (rememberMe) {
+        localStorage.setItem('authToken', token);
       } else {
-        throw new Error('Invalid credentials');
+        sessionStorage.setItem('authToken', token);
       }
+
+      // Set the default authorization header for all future requests
+      axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      
+      navigate('/flights');
     } catch (error) {
-      setError(error.message || 'Login failed');
+      setError(error.response?.data?.error || 'Login failed');
     } finally {
       setLoading(false);
     }
@@ -48,10 +78,11 @@ const Login = () => {
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
-        minHeight: '60vh'
+        minHeight: '100vh',
+        backgroundColor: 'background.default'
       }}
     >
-      <Card sx={{ maxWidth: 400, width: '100%' }}>
+      <Card sx={{ maxWidth: 400, width: '100%', mx: 2 }}>
         <CardContent>
           <Typography variant="h5" component="h1" gutterBottom align="center">
             DfT Aviation Portal Login
@@ -81,6 +112,19 @@ const Login = () => {
                 setCredentials({ ...credentials, password: e.target.value })
               }
               disabled={loading}
+              required
+            />
+
+            <FormControlLabel
+              control={
+                <Checkbox
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  color="primary"
+                />
+              }
+              label="Remember me"
+              sx={{ mt: 1 }}
             />
 
             {error && (

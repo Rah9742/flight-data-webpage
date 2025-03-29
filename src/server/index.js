@@ -1,9 +1,21 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const mongoose = require('mongoose');
+const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
+const User = require('./models/User');
+const auth = require('./middleware/auth');
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
+
+// Connect to MongoDB
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => console.log('Connected to MongoDB'))
+  .catch(err => console.error('MongoDB connection error:', err));
 
 // Mock flight data for demonstration
 const generateMockFlightData = (baseDate) => {
@@ -46,13 +58,60 @@ const generateMockFlightData = (baseDate) => {
 // Middleware
 app.use(express.json());
 
+// Authentication Routes
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const existingUser = await User.findOne({ username });
+    
+    if (existingUser) {
+      return res.status(400).json({ error: 'Username already exists' });
+    }
+    
+    const user = new User({ username, password });
+    await user.save();
+    
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRY
+    });
+    
+    res.status(201).json({ token });
+  } catch (error) {
+    res.status(500).json({ error: 'Error creating user' });
+  }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const user = await User.findOne({ username });
+    
+    if (!user || !(await user.comparePassword(password))) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+    
+    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
+      expiresIn: process.env.JWT_EXPIRY
+    });
+    
+    res.json({ token, username: user.username, role: user.role });
+  } catch (error) {
+    res.status(500).json({ error: 'Error logging in' });
+  }
+});
+
+// Protected Routes
+app.get('/api/auth/profile', auth, async (req, res) => {
+  res.json({ user: { username: req.user.username, role: req.user.role } });
+});
+
 // Routes
-app.get('/api/flights/live', (req, res) => {
+app.get('/api/flights/live', auth, (req, res) => {
   const flights = Array(20).fill(null).map(generateMockFlightData);
   res.json(flights);
 });
 
-app.get('/api/flights/historical', (req, res) => {
+app.get('/api/flights/historical', auth, (req, res) => {
   const flights = [];
   const today = new Date();
   
